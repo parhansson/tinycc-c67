@@ -294,8 +294,8 @@ typedef union CValue {
     int i;
     unsigned int ui;
     unsigned int ul; /* address (should be unsigned long on 64 bit cpu) */
-    long long ll;
-    unsigned long long ull;
+    int64_t ll;
+    uint64_t ull;
     struct CString *cstr;
     void *ptr;
     int tab[LDOUBLE_SIZE/4];
@@ -1307,6 +1307,9 @@ ST_FUNC void gen_cvt_itof1(int t);
 
 /* ------------ c67-gen.c ------------ */
 #ifdef TCC_TARGET_C67
+#ifdef ASSEMBLY_LISTING_C67
+FILE *f = NULL;
+#endif
 #endif
 
 /* ------------ tcccoff.c ------------ */

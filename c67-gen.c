@@ -189,10 +189,6 @@ static int func_ret_sub;
 static BOOL C67_invert_test;
 static int C67_compare_reg;
 
-#ifdef ASSEMBLY_LISTING_C67
-FILE *f = NULL;
-#endif
-
 void C67_g(int c)
 {
     int ind1;
@@ -1188,7 +1184,8 @@ void C67_asm(char *s, int a, int b, int c)
 	C67_g((0 << 29) |	//creg
 	      (0 << 28) |	//inv
 	      (C67_map_regn(b) << 23) |	//dst
-	      (a << 07) |	//scst16
+	      // PH was (a << 07) | //scst16
+	      ((a&0xffff) <<07) | //scst16
 	      (0x14 << 2) |	//opcode fixed
 	      (C67_map_regs(b) << 1) |	//side of dst
 	      (0 << 0));	//parallel
@@ -1633,7 +1630,11 @@ void load(int r, SValue * sv)
 		C67_LDDW_PTR(v, r);	// LDDW  *v,r
 	    }
 
-	    C67_NOP(4);		// NOP 4
+		if (size==8)
+			C67_NOP(5);		 	  // NOP 5
+		else
+			C67_NOP(4);		 	  // NOP 4
+
 	    return;
 	} else if (fr & VT_SYM) {
 	    greloc(cur_text_section, sv->sym, ind, R_C60LO16);	// rem the inst need to be patched
@@ -1660,7 +1661,10 @@ void load(int r, SValue * sv)
 		C67_LDDW_PTR(C67_A0, r);	// LDDW  *A0,r
 	    }
 
-	    C67_NOP(4);		// NOP 4
+		if (size==8)
+			C67_NOP(5);		 	  // NOP 5
+		else
+			C67_NOP(4);		 	  // NOP 4
 	    return;
 	} else {
 	    element = size;
@@ -1685,8 +1689,10 @@ void load(int r, SValue * sv)
 		C67_LDDW_SP_A0(r);	// LDDW  r, SP[A0]
 	    }
 
-
-	    C67_NOP(4);		// NOP 4
+		if (size==8)
+			C67_NOP(5);		 	  // NOP 5
+		else
+			C67_NOP(4);		 	  // NOP 4
 	    return;
 	}
     } else {
@@ -1878,12 +1884,73 @@ static void gcall_or_jmp(int is_jmp)
 	}
     }
 }
+/* push function parameter which is in (vtop->t, vtop->c).
+ * Stack entry is not popped.
+ * */
+int gfunc_param(int arg_nr)
+{
+    int size = 0 , r;
 
+    if ((vtop->type.t & VT_BTYPE) == VT_STRUCT) {
+        //tcc_error("passing struct not allowed, consider passing by ref");
+        ALWAYS_ASSERT(FALSE);
+    } else {
+        /* simple type (currently always same size) */
+        /* XXX: implicit cast ? */
+
+        if ((vtop->type.t & VT_BTYPE) == VT_LLONG)
+        {
+            tcc_error("long long not supported");
+        }
+        else if ((vtop->type.t & VT_BTYPE) == VT_LDOUBLE)
+        {
+            tcc_error("long double not supported");
+        }
+        else if ((vtop->type.t & VT_BTYPE) == VT_DOUBLE)
+        {
+            size = 8;
+        }
+        else
+        {
+            size = 4;
+        }
+
+        // put the parameter into the corresponding reg (pair)
+
+        if (arg_nr >= 0 && arg_nr < NoCallArgsPassedOnStack)
+        {
+#ifdef ASSEMBLY_LISTING_C67
+            fprintf(f,"arg_nr=%d  vtop->type.t=%d size=%d\n",arg_nr,vtop->type.t,size);
+#endif
+            r = gv(RC_C67_A4 << (2 * arg_nr));
+
+            // must put on stack because with 1 pass compiler , no way to tell
+            // if an up coming nested call might overwrite these regs
+
+            C67_PUSH(r);
+
+            if (size == 8)
+            {
+                C67_STW_PTR_PRE_INC(r+1, C67_SP, 3);  // STW  r, *+SP[3] (go back and put the other)
+            }
+        }
+        else
+        {
+            tcc_error("more than 10 function parameters not allowed");
+        }
+
+    }
+    return size;
+}
 /* generate function call with address in (vtop->t, vtop->c) and free function
    context. Stack entry is popped */
 void gfunc_call(int nb_args)
 {
     int i, r, size = 0;
+
+    int proto_count, loc, stackused=0;
+    Sym *sym;
+
     int args_sizes[NoCallArgsPassedOnStack];
 
     if (nb_args > NoCallArgsPassedOnStack) {
@@ -1891,53 +1958,119 @@ void gfunc_call(int nb_args)
 	// handle more than 10, put some on the stack
     }
 
+    //PH do argmuments in reverse order
+    vtop -= (nb_args-1);
     for (i = 0; i < nb_args; i++) {
-	if ((vtop->type.t & VT_BTYPE) == VT_STRUCT) {
-	    ALWAYS_ASSERT(FALSE);
-	} else if ((vtop->type.t & VT_BTYPE) == VT_STRUCT) {
-	    ALWAYS_ASSERT(FALSE);
-	} else {
-	    /* simple type (currently always same size) */
-	    /* XXX: implicit cast ? */
+        if ((vtop->type.t & VT_BTYPE) == VT_LLONG)
+        {
+            tcc_error("long long not supported");
+        }
+        else if ((vtop->type.t & VT_BTYPE) == VT_LDOUBLE)
+        {
+            tcc_error("long double not supported");
+        }
+        else if ((vtop->type.t & VT_BTYPE) == VT_DOUBLE)
+        {
+            size = 8;
+        }
+        else
+        {
+            size = 4;
+        }
+        args_sizes[i] = size;
 
-
-	    if ((vtop->type.t & VT_BTYPE) == VT_LLONG) {
-		tcc_error("long long not supported");
-	    } else if ((vtop->type.t & VT_BTYPE) == VT_LDOUBLE) {
-		tcc_error("long double not supported");
-	    } else if ((vtop->type.t & VT_BTYPE) == VT_DOUBLE) {
-		size = 8;
-	    } else {
-		size = 4;
-	    }
-
-	    // put the parameter into the corresponding reg (pair)
-
-	    r = gv(RC_C67_A4 << (2 * i));
-
-	    // must put on stack because with 1 pass compiler , no way to tell
-	    // if an up coming nested call might overwrite these regs
-
-	    C67_PUSH(r);
-
-	    if (size == 8) {
-		C67_STW_PTR_PRE_INC(r + 1, C67_SP, 3);	// STW  r, *+SP[3] (go back and put the other)
-	    }
-	    args_sizes[i] = size;
-	}
-	vtop--;
+        //PH next parameter
+        vtop++;
     }
+    //PH reset stack entry to function
+    vtop -= (nb_args+1);
+
     // POP all the params on the stack into registers for the
     // immediate call (in reverse order)
 
     for (i = nb_args - 1; i >= 0; i--) {
-
-	if (args_sizes[i] == 8)
-	    C67_POP_DW(TREG_C67_A4 + i * 2);
-	else
-	    C67_POP(TREG_C67_A4 + i * 2);
+        if (args_sizes[i] == 8)
+            C67_POP_DW(TREG_C67_A4 + i * 2);
+        else
+            C67_POP(TREG_C67_A4 + i * 2);
     }
+
+
+    // Special case for variable arguments
+
+    if (vtop->type.ref->c == FUNC_ELLIPSIS)
+    {
+
+        // yes there are variable arguments
+
+        // determine how many are in the function prototype
+
+        proto_count=0;
+        sym=vtop->type.ref;
+        while (sym->next)
+        {
+            sym=sym->next;
+            proto_count++;
+        }
+
+        // rule is that last formal param plus var
+        // params are pushed on stack
+
+        // figure the size of the stack needed
+        // considering alignment
+
+        loc=0;
+        for (i=proto_count-1; i<nb_args; i++)
+        {
+            // align to argument size
+
+            size = args_sizes[i];
+            loc = (loc+size-1) & ~(size-1);
+            loc += size;
+        }
+        // finally align to Double word
+        size = 8;
+        loc = (loc+size-1) & ~(size-1);
+
+        stackused=loc;
+
+        C67_ADDK(-stackused,C67_SP);    //  ADDK.L2 -loc,SP
+        C67_NOP(3);                     //  NOP wait for loads to happen
+
+        //now re-save the required params (registers) onto the stack
+
+        loc=4;
+        for (i=proto_count-1; i<nb_args; i++)
+        {
+            // align to argument size
+
+            size = args_sizes[i];
+            loc = (loc+size-1) & ~(size-1);
+
+            r = TREG_C67_A4+(2 * i);
+
+            // must put on stack because with 1 pass compiler , no way to tell
+            // if an up coming nested call might overwrite these regs
+
+            C67_STW_PTR_PRE_INC(r, C67_SP, loc/4);  // STW  r, *+SP[3] (go back and put the other)
+
+            if (size == 8)
+            {
+                C67_STW_PTR_PRE_INC(r+1, C67_SP, loc/4+1);  // STW  r, *+SP[3] (go back and put the other)
+            }
+            loc += size;
+
+        }
+    }
+
     gcall_or_jmp(0);
+
+    if (stackused)
+    {
+        // recover stack
+
+        C67_ADDK(stackused,C67_SP);    //  ADDK.L2 loc,SP
+    }
     vtop--;
 }
 
@@ -2343,49 +2476,82 @@ void gen_opf(int op)
 	fr = vtop[0].r;
 
 	C67_compare_reg = C67_B2;
-
+	//TODO kolla om vtop--; ska finnas i alla dom här if-arna
 	if (op == TOK_LT) {
 	    if ((ft & VT_BTYPE) == VT_DOUBLE)
-		C67_CMPLTDP(r, fr, C67_B2);
+	    {
+	        C67_CMPLTDP(r, fr, C67_B2);
+	        C67_NOP(1); //PH
+	    }
 	    else
-		C67_CMPLTSP(r, fr, C67_B2);
-
+	    {
+	        C67_CMPLTSP(r, fr, C67_B2);
+	    }
 	    C67_invert_test = FALSE;
+	    vtop--;
 	} else if (op == TOK_GE) {
 	    if ((ft & VT_BTYPE) == VT_DOUBLE)
-		C67_CMPLTDP(r, fr, C67_B2);
-	    else
-		C67_CMPLTSP(r, fr, C67_B2);
-
+	    {
+	        C67_CMPLTDP(r, fr, C67_B2);
+	        C67_NOP(1); //PH
+	    }
+		else
+		{
+		    C67_CMPLTSP(r, fr, C67_B2);
+		}
 	    C67_invert_test = TRUE;
+	    vtop--;
 	} else if (op == TOK_GT) {
 	    if ((ft & VT_BTYPE) == VT_DOUBLE)
-		C67_CMPGTDP(r, fr, C67_B2);
+	    {
+	        C67_CMPGTDP(r, fr, C67_B2);
+	        C67_NOP(1); //PH
+	    }
 	    else
-		C67_CMPGTSP(r, fr, C67_B2);
-
+	    {
+	        C67_CMPGTSP(r, fr, C67_B2);
+	    }
 	    C67_invert_test = FALSE;
+	    vtop--;
 	} else if (op == TOK_LE) {
 	    if ((ft & VT_BTYPE) == VT_DOUBLE)
-		C67_CMPGTDP(r, fr, C67_B2);
+	    {
+	        C67_CMPGTDP(r, fr, C67_B2);
+	        C67_NOP(1); //PH
+	    }
 	    else
-		C67_CMPGTSP(r, fr, C67_B2);
+	    {
+	        C67_CMPGTSP(r, fr, C67_B2);
+	    }
 
 	    C67_invert_test = TRUE;
+	    vtop--;
 	} else if (op == TOK_EQ) {
 	    if ((ft & VT_BTYPE) == VT_DOUBLE)
-		C67_CMPEQDP(r, fr, C67_B2);
+	    {
+	        C67_CMPEQDP(r, fr, C67_B2);
+	        C67_NOP(1); //PH
+	    }
 	    else
-		C67_CMPEQSP(r, fr, C67_B2);
+	    {
+	        C67_CMPEQSP(r, fr, C67_B2);
+	    }
 
 	    C67_invert_test = FALSE;
+	    vtop--;
 	} else if (op == TOK_NE) {
 	    if ((ft & VT_BTYPE) == VT_DOUBLE)
-		C67_CMPEQDP(r, fr, C67_B2);
+	    {
+	        C67_CMPEQDP(r, fr, C67_B2);
+	        C67_NOP(1); //PH
+	    }
 	    else
-		C67_CMPEQSP(r, fr, C67_B2);
+	    {
+	        C67_CMPEQSP(r, fr, C67_B2);
+	    }
 
 	    C67_invert_test = TRUE;
+	    vtop--;
 	} else {
 	    ALWAYS_ASSERT(FALSE);
 	}

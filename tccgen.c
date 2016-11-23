@@ -1009,10 +1009,12 @@ ST_FUNC void vpop(void)
     int v;
     v = vtop->r & VT_VALMASK;
 #if defined(TCC_TARGET_I386) || defined(TCC_TARGET_X86_64)
+#ifndef TCC_TARGET_C67
     /* for x86, we need to pop the FP stack */
     if (v == TREG_ST0 && !nocode_wanted) {
         o(0xd8dd); /* fstp %st(0) */
     } else
+#endif
 #endif
     if (v == VT_JMP || v == VT_JMPI) {
         /* need to put correct jump if && or || without test */
@@ -3900,6 +3902,11 @@ ST_FUNC void unary(void)
                 for(;;) {
                     expr_eq();
                     gfunc_param_typed(s, sa);
+#ifdef TCC_TARGET_C67
+                    //PH Parameters are casted into correct type in gfunc_param_typed
+                    // we need to setup each parameter right after
+                    gfunc_param(nb_args);
+#endif
                     nb_args++;
                     if (sa)
                         sa = sa->next;

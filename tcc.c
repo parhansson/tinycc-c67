@@ -348,5 +348,10 @@ int main(int argc, char **argv)
     tcc_delete(s);
     if (bench)
         tcc_memstats();
+
+#ifdef ASSEMBLY_LISTING_C67
+    if (f)
+        fclose(f);
+#endif
     return ret;
 }

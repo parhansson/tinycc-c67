@@ -519,6 +519,10 @@ ST_FUNC void put_extern_sym2(Sym *sym, Section *section,
             name = sym->asm_label;
         }
         info = ELFW(ST_INFO)(sym_bind, sym_type);
+#ifdef TCC_TARGET_COFF
+        //Correct type of Elf symbol for debugging
+        other = sym->type.t;
+#endif
         sym->c = add_elf_sym(symtab_section, value, size, info, other, sh_num, name);
     } else {
         esym = &((ElfW(Sym) *)symtab_section->data)[sym->c];

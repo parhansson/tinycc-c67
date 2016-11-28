@@ -1498,7 +1498,33 @@ include_trynext:
             ++s1->include_stack_ptr;
             /* add include file debug info */
             if (s1->do_debug)
+            {
+#ifdef TCC_TARGET_C67
+                // debug works better with no path
+                char filename[1024];
+                char *buf;
+                strcpy(filename, file->filename);
+#ifdef _WIN32
+                normalize_slashes(filename);
+#endif
+                buf=strrchr(filename, '/');
+
+                if (buf==NULL)
+                    buf=filename;
+                else
+                    buf++;
+
+                put_stabs(buf, N_BINCL, 0, 0, 0);
+
+                /* an elf symbol of type STT_FILE must be put so that STB_LOCAL
+                   symbols can be safely used */
+                put_elf_sym(symtab_section, 0, 0,
+                            ELF32_ST_INFO(STB_LOCAL, STT_FILE), 0,
+                            SHN_ABS, buf);
+#else
                 put_stabs(file->filename, N_BINCL, 0, 0, 0);
+#endif
+            }
             tok_flags |= TOK_FLAG_BOF | TOK_FLAG_BOL;
             ch = file->buf_ptr[0];
             goto the_end;

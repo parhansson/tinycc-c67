@@ -5460,8 +5460,11 @@ static void put_func_debug(Sym *sym)
              funcname, sym->type.t & VT_STATIC ? 'f' : 'F');
     put_stabs_r(buf, N_FUN, 0, file->line_num, 0,
                 cur_text_section, sym->c);
+//PH we are not debugging C67 with gdb right?
+#ifndef TCC_TARGET_C67
     /* //gr gdb wants a line at the function */
-    put_stabn(N_SLINE, 0, file->line_num, 0); 
+    put_stabn(N_SLINE, 0, file->line_num, 0);
+#endif
     last_ind = 0;
     last_line_num = 0;
 }

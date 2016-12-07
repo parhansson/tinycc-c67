@@ -710,6 +710,9 @@ ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 /* compile the C file opened in 'file'. Return non zero if errors. */
 static int tcc_compile(TCCState *s1)
 {
+#ifdef TCC_TARGET_C67
+        char *fs1,*fs2;
+#endif
     Sym *define_start;
     SValue *pvtop;
     char buf[512];
@@ -737,6 +740,30 @@ static int tcc_compile(TCCState *s1)
         pstrcat(buf, sizeof(buf), "/");
         put_stabs_r(buf, N_SO, 0, 0, 
                     text_section->data_offset, text_section, section_sym);
+
+#ifdef TCC_TARGET_C67  // debug works better with no path
+
+        fs1=strrchr((char *)file->filename, '\\');
+        fs2=strrchr((char *)file->filename, '/');
+
+        if (fs2>fs1) fs1=fs2;
+
+        if (fs1==NULL)
+            fs1=file->filename;
+        else
+            fs1++;
+
+        put_stabs_r(fs1, N_SO, 0, 0,
+                    text_section->data_offset, text_section, section_sym);
+    }
+    /* an elf symbol of type STT_FILE must be put so that STB_LOCAL
+       symbols can be safely used */
+    //NOTE fs1 will not be initialised here if not s1->do_debug (-g)
+    put_elf_sym(symtab_section, 0, 0,
+                ELFW(ST_INFO)(STB_LOCAL, STT_FILE), 0,
+                SHN_ABS, fs1);
+#else
+
         put_stabs_r(file->filename, N_SO, 0, 0, 
                     text_section->data_offset, text_section, section_sym);
     }
@@ -745,6 +772,7 @@ static int tcc_compile(TCCState *s1)
     put_elf_sym(symtab_section, 0, 0, 
                 ELFW(ST_INFO)(STB_LOCAL, STT_FILE), 0, 
                 SHN_ABS, file->filename);
+#endif
 
     /* define some often used types */
     int_type.t = VT_INT;

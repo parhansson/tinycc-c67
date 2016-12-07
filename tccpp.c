@@ -1501,26 +1501,25 @@ include_trynext:
             {
 #ifdef TCC_TARGET_C67
                 // debug works better with no path
-                char filename[1024];
-                char *buf;
-                strcpy(filename, file->filename);
-#ifdef _WIN32
-                normalize_slashes(filename);
-#endif
-                buf=strrchr(filename, '/');
+                char *s1,*s2;
 
-                if (buf==NULL)
-                    buf=filename;
+                s1=strrchr((char *)file->filename, '\\');
+                s2=strrchr((char *)file->filename, '/');
+
+                if (s2>s1) s1=s2;
+
+                if (s1==NULL)
+                    s1=file->filename;
                 else
-                    buf++;
+                    s1++;
 
-                put_stabs(buf, N_BINCL, 0, 0, 0);
+                put_stabs(s1, N_BINCL, 0, 0, 0);
 
                 /* an elf symbol of type STT_FILE must be put so that STB_LOCAL
                    symbols can be safely used */
                 put_elf_sym(symtab_section, 0, 0,
                             ELF32_ST_INFO(STB_LOCAL, STT_FILE), 0,
-                            SHN_ABS, buf);
+                            SHN_ABS, s1);
 #else
                 put_stabs(file->filename, N_BINCL, 0, 0, 0);
 #endif

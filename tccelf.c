@@ -1593,21 +1593,48 @@ static int elf_output_file(TCCState *s1, const char *filename)
     saved_dynamic_data_offset = 0; /* avoid warning */
     
     if (file_type != TCC_OUTPUT_OBJ) {
+#ifdef TCC_TARGET_C67
+
+
+        if(tcc_state->nocommon){
+            //PH default behavior of 0.9.26 version
+            relocate_common_syms();
+
+            tcc_add_linker_symbols(s1);
+        } else {
+            //When common flag is active we do it the same way as
+            //dynomotions 0.9.16 version branch
+
+            //This is only made to produce exactly equal binaries as the 0.9.16 version
+            //Maybe it would be better to update the old version to honor common flag
+            //than to press fit this fix.
+
+            //1 add linker symbols
+            //2 relocate symbols
+            //3 update __stop_.bss
+
+            tcc_add_linker_symbols(s1);
+
+            relocate_common_syms();
+            // now that we have allocated global .bss symbols
+            // update end symbol so user can calc space for bss
+
+            //This is not neccessary when no-common is active
+            //sym->st_value is already the same as bss_section->data_offset
+            int sym_bss_end_index = find_elf_sym(symtab_section, "__stop_.bss");
+            Elf32_Sym *sym;
+            sym = &((Elf32_Sym *)symtab_section->data)[sym_bss_end_index];
+            //printf("__stop_.bss before %04X and after %04X\n",sym->st_value, bss_section->data_offset);
+            sym->st_value=bss_section->data_offset;
+        }
+
+
+#else
+        //PH default behavior of 0.9.26 version
         relocate_common_syms();
 
-#ifdef TCC_TARGET_C67
-		// now that we have allocated global .bss symbols
-		// update end symbol so user can calc space for bss
-        //Helps with debug sections but not neccessary without -g flag
-/*
-        int sym_bss_end_index = find_elf_sym(symtab_section, "__stop_.bss");
-	    Elf32_Sym *sym;
-        sym = &((Elf32_Sym *)symtab_section->data)[sym_bss_end_index];
-		sym->st_value=bss_section->data_offset;
-*/
-#endif
-
         tcc_add_linker_symbols(s1);
+#endif
 
         if (!s1->static_link) {
             const char *name;

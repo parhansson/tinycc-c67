@@ -2282,7 +2282,13 @@ void gfunc_prolog(CType * func_type)
     /* define parameters */
     while ((sym = sym->next) != NULL) {
 	type = &sym->type;
-	sym_push(sym->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), addr);
+#ifdef LEGACY_C67
+	//testcase test_param_cast.c
+	//This actually introduces a bug present in the kmotion 0.9.16 based version
+	sym_push(sym->v & ~SYM_FIELD, type, VT_LOCAL | VT_LVAL, addr);
+#else
+    sym_push(sym->v & ~SYM_FIELD, type, VT_LOCAL | lvalue_type(type->t), addr);
+#endif
 	size = type_size(type, &align);
 	size = (size + 3) & ~3;
 

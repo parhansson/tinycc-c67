@@ -20,6 +20,8 @@
 
 #ifndef _TCC_H
 #define _TCC_H
+ /* produces binary equal files as old version even if there are bugs*/
+#define LEGACY_C67
 
 #define _GNU_SOURCE
 #include "config.h"

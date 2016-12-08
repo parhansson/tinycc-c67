@@ -30,10 +30,10 @@
    assumptions on it). */
 #define RC_INT     0x0001	/* generic integer register */
 #define RC_FLOAT   0x0002	/* generic float register */
-#define RC_EAX     0x0004
+#define RC_EAX     0x0004   /* A2:A3 double register */
 #define RC_ST0     0x0008
 #define RC_ECX     0x0010
-#define RC_EDX     0x0020
+#define RC_EDX     0x0020   /* B0:B1 double register */
 #define RC_INT_BSIDE  0x00000040	/* generic integer register  on b side */
 #define RC_C67_A4     0x00000100
 #define RC_C67_A5     0x00000200
@@ -1003,6 +1003,20 @@ void C67_asm(char *s, int a, int b, int c)
 	      (0x6 << 2) |	//opcode fixed
 	      (C67_map_regs(c) << 1) |	//side of dest
 	      (0 << 0));	//parallel
+    } else if (strstr(s,"XOR.LCST")==s) {
+        xpath = C67_map_regs(b)^C67_map_regs(c);
+
+        C67_g(
+              (0                 <<29) |    //creg
+              (0                 <<28) |    //inv
+              (C67_map_regn(c)   <<23) |    //dst
+              (C67_map_regn(b)   <<18) |    //src2 (possible x path)
+              (a                 <<13) |    //src1 (cnst5)
+              (xpath             <<12) |    //x cross path if opposite sides
+              (0x6e              << 5) |    //opcode
+              (0x6               << 2) |    //opcode fixed
+              (C67_map_regs(c)   << 1) |    //side of dest
+              (0                 << 0));    //parallel
     } else if (strstr(s, "XOR.L") == s) {
 	xpath = C67_map_regs(b) ^ C67_map_regs(c);
 
@@ -1503,6 +1517,11 @@ void C67_XOR(int r, int v)
     C67_asm("XOR.L", v, r, v);
 }
 
+void C67_XORCST(int v, int r, int r2)
+{
+    C67_asm("XOR.LCST",v,r,r2);
+}
+
 void C67_ADDSP(int r, int v)
 {
     C67_asm("ADDSP.L", v, r, v);
@@ -1708,7 +1727,14 @@ void load(int r, SValue * sv)
 	    C67_MVKH(r, fc + 8);	//r=reg to load, constant
 	    C67_ADD(C67_FP, r);	// MV v,r   v -> r
 	} else if (v == VT_CMP) {
-	    C67_MV(C67_compare_reg, r);	// MV v,r   v -> r
+        if (C67_invert_test)
+        {
+            C67_XORCST(1,C67_compare_reg,r);  // XOR 1,B2,r
+        }
+        else
+        {
+            C67_MV(C67_compare_reg,r);   // MV v,r   v -> r
+        }
 	} else if (v == VT_JMP || v == VT_JMPI) {
 	    t = v & 1;
 	    C67_B_DISP(4);	//  Branch with constant displacement, skip over this branch, load, nop, load

@@ -105,7 +105,11 @@ ST_FUNC void test_lvalue(void)
     if (!(vtop->r & VT_LVAL))
         expect("lvalue");
 }
-
+// true if register class may need register pair
+ST_INLN int is_pair(int rc)
+{
+    return (rc == RC_EAX || rc == RC_EDX || rc == RC_FLOAT);
+}
 /* ------------------------------------------------------------------------- */
 /* symbol allocator */
 static Sym *__sym_malloc(void)
@@ -580,6 +584,88 @@ ST_FUNC int get_reg(int rc)
     int r;
     SValue *p;
 
+#ifdef TCC_TARGET_C67
+    // note C67 uses register pairs for doubles
+    //
+    // so to consider if a float register is available
+    // we must scan the stack for both the register candidate
+    // and its associated pair (always the following reg)
+
+
+    /* find a free register */
+    for(r=0;r<NB_REGS;r++) {
+        if (reg_classes[r] & rc) {
+            for(p=vstack;p<=vtop;p++) {
+                if ((p->r  & VT_VALMASK) == r ||
+                    (p->r2 & VT_VALMASK) == r ||
+                    (is_pair(rc) &&
+                        ((p->r  & VT_VALMASK) == r+1 ||
+                         (p->r2 & VT_VALMASK) == r+1)))
+                   goto notfound;
+            }
+            return r;
+        }
+    notfound: ;
+    }
+
+    /* no register left : free the first one on the stack (VERY
+       IMPORTANT to start from the bottom to ensure that we don't
+       spill registers used in gen_opi()) */
+
+
+    for(p=vstack;p<=vtop;p++) {
+        r = p->r & VT_VALMASK;
+        if (r < VT_CONST && (reg_classes[r] & rc)) {
+            save_reg(r);
+
+            /* if we need a float class (pair)
+               check if the other register needs to be
+               saved also */
+
+            if (is_pair(rc)) {
+                save_reg(r+1);
+            }
+            return r;
+        }
+
+        /* if we need a float class (pair) also
+           check if the used register associated
+           register is of class float */
+
+        if (is_pair(rc) && r < VT_CONST && (reg_classes[r-1] & rc)) {
+
+            save_reg(r);
+
+            /* if we need a float class (pair)
+               check if the other register needs to be
+               saved also */
+
+            if (is_pair(rc)) {
+                save_reg(r-1);
+            }
+            return r-1;
+        }
+
+        /* also look at second register (if long long) */
+        r = p->r2 & VT_VALMASK;
+        if (r < VT_CONST && (reg_classes[r] & rc)) {
+            save_reg(r);
+            return r;
+        }
+
+        /* if we need a float class (pair) also
+           check if the used register associated
+           register is of class float */
+
+        if (is_pair(rc) && r < VT_CONST && (reg_classes[r-1] & rc)) {
+            save_reg(r);
+            return r-1;
+        }
+    }
+    /* Should never comes here */
+    tcc_error("Unable to assign registers for operation");
+    return -1;
+#else
     /* find a free register */
     for(r=0;r<NB_REGS;r++) {
         if (reg_classes[r] & rc) {
@@ -610,6 +696,7 @@ ST_FUNC int get_reg(int rc)
     }
     /* Should never comes here */
     return -1;
+#endif
 }
 
 /* save registers up to (vtop - n) stack entry */

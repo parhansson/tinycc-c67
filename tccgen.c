@@ -857,10 +857,13 @@ ST_FUNC int gv(int rc)
            - lvalue (need to dereference pointer)
            - already a register, but not in the right class */
         if (r >= VT_CONST
-         || (vtop->r & VT_LVAL)
-         || !(reg_classes[r] & rc)
+            || (vtop->r & VT_LVAL)
+            || !(reg_classes[r] & rc)
 #ifndef TCC_TARGET_X86_64
-         || ((vtop->type.t & VT_BTYPE) == VT_LLONG && !(reg_classes[vtop->r2] & rc2))
+            || ((vtop->type.t & VT_BTYPE) == VT_LLONG && !(reg_classes[vtop->r2] & rc))
+#endif
+#ifdef TCC_TARGET_C67
+            || (is_pair(rc) && !check_r2_free(r+1))
 #endif
             )
         {

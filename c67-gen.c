@@ -1694,7 +1694,7 @@ void load(int r, SValue * sv)
     SValue v1;
 
     fr = sv->r;
-    ft = sv->type.t;
+    ft = sv->type.t &~ (VT_CONSTANT | VT_VOLATILE); //PH remove volatile and const modifiers. Is there others??
     fc = sv->c.ul;
 
     v = fr & VT_VALMASK;
@@ -1705,7 +1705,10 @@ void load(int r, SValue * sv)
 	    v1.c.ul = fc;
 	    load(r, &v1);
 	    fr = r;
-	} else if ((ft & VT_BTYPE) == VT_LDOUBLE) {
+        v = r;  // not too sure about this tktk
+	}
+    //PH fixed was else if here
+	if ((ft & VT_BTYPE) == VT_LDOUBLE) {
 	    tcc_error("long double not supported");
 	} else if ((ft & VT_TYPE) == VT_BYTE) {
 	    size = 1;
@@ -1797,6 +1800,42 @@ void load(int r, SValue * sv)
 		else
 			C67_NOP(4);		 	  // NOP 4
 	    return;
+	}
+	//PH added missing constant case
+	else if ((fr & VT_VALMASK) == VT_CONST)  // check for pure indirect of constant
+    {
+        C67_MVKL(C67_A0,fc);   //r=reg to load,  constant
+        C67_MVKH(C67_A0,fc);   //r=reg to load,  constant
+
+        if (size == 1)
+        {
+            if (Unsigned)
+                C67_LDBU_PTR(C67_A0,r); // LDBU  *v,r
+            else
+                C67_LDB_PTR(C67_A0,r);  // LDB  *v,r
+        }
+        else if (size == 2)
+        {
+            if (Unsigned)
+                C67_LDHU_PTR(C67_A0,r);  // LDHU  *v,r
+            else
+                C67_LDH_PTR(C67_A0,r);   // LDH  *v,r
+        }
+        else if (size == 4)
+        {
+            C67_LDW_PTR(C67_A0,r);       // LDW  *v,r
+        }
+        else if (size==8)
+        {
+            C67_LDDW_PTR(C67_A0,r);       // LDDW  *v,r
+        }
+
+        if (size==8)
+            C67_NOP(5);           // NOP 5
+        else
+            C67_NOP(4);           // NOP 4
+
+        return;
 	} else {
 	    element = size;
 

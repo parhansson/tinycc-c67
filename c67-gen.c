@@ -150,10 +150,10 @@ ST_DATA const int reg_classes[NB_REGS] = {
     /* A11  */ RC_C67_A11,
     /* B10  */ RC_C67_B10,
     /* B11  */ RC_C67_B11,
-    /* A12  */ RC_C67_A10,
-    /* A13  */ RC_C67_A11,
-    /* B12  */ RC_C67_B10,
-    /* B13  */ RC_C67_B11
+    /* A12  */ RC_C67_A12,
+    /* A13  */ RC_C67_A13,
+    /* B12  */ RC_C67_B12,
+    /* B13  */ RC_C67_B13
 };
 
 // although tcc thinks it is passing parameters on the stack,

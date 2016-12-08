@@ -1573,6 +1573,118 @@ void C67_SHR(int r, int v)
 }
 
 
+// true if register class may need register pair
+ST_INLN int is_pair(int rc)
+{
+    return (rc == RC_EAX || rc == RC_EDX || rc == RC_FLOAT);
+}
+
+// check if the 2nd of a register pair is already in use as a primary register
+ST_FUNC int check_r2_free(int r)
+{
+    SValue *p;
+
+    for(p=vstack;p<=vtop;p++)
+        if ((p->r  & VT_VALMASK) == r)
+           return 0;
+
+    return 1;
+}
+
+// Checks if a specific register is in use
+int CheckInUse(int r)
+{
+    SValue *p;
+
+    for(p=vstack;p<=vtop;p++)
+    {
+        if ((p->r  & VT_VALMASK) == r ||
+            (p->r2 & VT_VALMASK) == r)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// checks if a particular register is in use anywhere in the
+// value stack.  TI Compiler spec says that registers
+// A0-A9 and B0-B9 must be preserved by caller.
+// Since we use A2,A3,B0,and B1 to hold values,
+// check which if any are in use and save them
+void CheckPreserveRegs(int *A2_inuse ,int *A3_inuse,int *B0_inuse,int *B1_inuse)
+{
+    *A2_inuse = CheckInUse(TREG_EAX);   // really A2
+    *A3_inuse = CheckInUse(TREG_ECX);   // really A3
+    *B0_inuse = CheckInUse(TREG_EDX);   // really B0
+    *B1_inuse = CheckInUse(TREG_ST0);   // really B1
+
+
+    if (*A2_inuse && *A3_inuse)
+    {
+        C67_PUSH(TREG_EAX);// really A2
+        C67_STW_PTR_PRE_INC(TREG_ECX, C67_SP, 3);  // STW  r, *+SP[1] (go back and put the other)
+    }
+    else if (*A2_inuse)
+    {
+        C67_PUSH(TREG_EAX);// really A2
+    }
+    else if (*A3_inuse)
+    {
+        C67_PUSH(TREG_ECX);// really A3
+    }
+
+    if (*B0_inuse && *B1_inuse)
+    {
+        C67_PUSH(TREG_EDX);// really B0
+        C67_STW_PTR_PRE_INC(TREG_ST0, C67_SP, 3);  // STW  r, *+SP[1] (go back and put the other)
+    }
+    else if (*B0_inuse)
+    {
+        C67_PUSH(TREG_EDX);// really B0
+    }
+    else if (*B1_inuse)
+    {
+        C67_PUSH(TREG_ST0);// really B1
+    }
+}
+
+
+// Now reload any values that we saved before the call
+void CheckRestoreRegs(int A2_inuse, int A3_inuse, int B0_inuse, int B1_inuse)
+{
+    if (A2_inuse && A3_inuse)
+    {
+        C67_POP_DW(TREG_EAX);
+    }
+    else if (A2_inuse)
+    {
+        C67_POP(TREG_EAX);// really A2
+    }
+    else if (A3_inuse)
+    {
+        C67_POP(TREG_ECX);// really A3
+    }
+
+    if (B0_inuse && B1_inuse)
+    {
+        C67_POP_DW(TREG_EDX);// really B0
+    }
+    else if (B0_inuse)
+    {
+        C67_POP(TREG_EDX);// really B0
+    }
+    else if (B1_inuse)
+    {
+        C67_POP(TREG_ST0);// really B1
+    }
+
+
+    if (A2_inuse || A3_inuse || B0_inuse || B1_inuse)
+    {
+        C67_NOP(4);     //  if we popped anything wait for loads to happen
+    }
+}
 
 /* load 'r' from value 'sv' */
 void load(int r, SValue * sv)
@@ -1911,7 +2023,7 @@ static void gcall_or_jmp(int is_jmp)
     }
 }
 /* push function parameter which is in (vtop->t, vtop->c).
- * Stack entry is not popped.
+ * Stack entry is popped.
  * */
 int gfunc_param(int arg_nr)
 {
@@ -1966,127 +2078,119 @@ int gfunc_param(int arg_nr)
         }
 
     }
+    vtop--;
     return size;
 }
-/* generate function call with address in (vtop->t, vtop->c) and free function
-   context. Stack entry is popped */
-void gfunc_call(int nb_args)
+/* generate function call with address in (vtop->t, vtop->c) if args_sizes is NULL
+ * and address in vtop-nb_args ig args_sizes is not null
+ * when args_sizes is not null parameters are previously generated with gfunc_call
+ * function context is freed. Stack entry is popped
+*/
+void gfunc_call(int nb_args, int* args_sizes)
 {
+    int A2_inuse=0,A3_inuse=0,B0_inuse=0,B1_inuse=0;
     int i, r, size = 0;
 
     int proto_count, loc, stackused=0;
     Sym *sym;
 
-    int args_sizes[NoCallArgsPassedOnStack];
+    int sizes[NoCallArgsPassedOnStack];
 
     if (nb_args > NoCallArgsPassedOnStack) {
-	tcc_error("more than 10 function params not currently supported");
-	// handle more than 10, put some on the stack
+        tcc_error("more than 10 function params not currently supported");
+        // handle more than 10, put some on the stack
     }
 
-    //PH do argmuments in reverse order
-    vtop -= (nb_args-1);
-    for (i = 0; i < nb_args; i++) {
-        if ((vtop->type.t & VT_BTYPE) == VT_LLONG)
-        {
-            tcc_error("long long not supported");
+    //If no args_sizes, parameters are still on stack and
+    //need to be stored and then popped from stack
+    if(nb_args > 0 && args_sizes == NULL){
+        args_sizes = sizes;
+        for (i = 0; i < nb_args; i++) {
+            args_sizes[i] = gfunc_param(i);
         }
-        else if ((vtop->type.t & VT_BTYPE) == VT_LDOUBLE)
-        {
-            tcc_error("long double not supported");
-        }
-        else if ((vtop->type.t & VT_BTYPE) == VT_DOUBLE)
-        {
-            size = 8;
-        }
-        else
-        {
-            size = 4;
-        }
-        args_sizes[i] = size;
-
-        //PH next parameter
-        vtop++;
-    }
-    //PH reset stack entry to function
-    vtop -= (nb_args+1);
-
-    // POP all the params on the stack into registers for the
-    // immediate call (in reverse order)
-
-    for (i = nb_args - 1; i >= 0; i--) {
-        if (args_sizes[i] == 8)
-            C67_POP_DW(TREG_C67_A4 + i * 2);
-        else
-            C67_POP(TREG_C67_A4 + i * 2);
     }
 
+    if(nb_args > 0){
 
-    // Special case for variable arguments
+        // POP all the params on the stack into registers for the
+        // immediate call (in reverse order)
 
-    if (vtop->type.ref->c == FUNC_ELLIPSIS)
-    {
-
-        // yes there are variable arguments
-
-        // determine how many are in the function prototype
-
-        proto_count=0;
-        sym=vtop->type.ref;
-        while (sym->next)
-        {
-            sym=sym->next;
-            proto_count++;
+        for (i = nb_args - 1; i >= 0; i--) {
+            if (args_sizes[i] == 8)
+                C67_POP_DW(TREG_C67_A4 + i * 2);
+            else
+                C67_POP(TREG_C67_A4 + i * 2);
         }
 
-        // rule is that last formal param plus var
-        // params are pushed on stack
+        CheckPreserveRegs(&A2_inuse,&A3_inuse,&B0_inuse,&B1_inuse);
 
-        // figure the size of the stack needed
-        // considering alignment
+        // Special case for variable arguments
 
-        loc=0;
-        for (i=proto_count-1; i<nb_args; i++)
+        if (vtop->type.ref->c == FUNC_ELLIPSIS)
         {
-            // align to argument size
 
-            size = args_sizes[i];
-            loc = (loc+size-1) & ~(size-1);
-            loc += size;
-        }
-        // finally align to Double word
-        size = 8;
-        loc = (loc+size-1) & ~(size-1);
+            // yes there are variable arguments
+            // determine how many are in the function prototype
 
-        stackused=loc;
-
-        C67_ADDK(-stackused,C67_SP);    //  ADDK.L2 -loc,SP
-        C67_NOP(3);                     //  NOP wait for loads to happen
-
-        //now re-save the required params (registers) onto the stack
-
-        loc=4;
-        for (i=proto_count-1; i<nb_args; i++)
-        {
-            // align to argument size
-
-            size = args_sizes[i];
-            loc = (loc+size-1) & ~(size-1);
-
-            r = TREG_C67_A4+(2 * i);
-
-            // must put on stack because with 1 pass compiler , no way to tell
-            // if an up coming nested call might overwrite these regs
-
-            C67_STW_PTR_PRE_INC(r, C67_SP, loc/4);  // STW  r, *+SP[3] (go back and put the other)
-
-            if (size == 8)
+            proto_count=0;
+            sym=vtop->type.ref;
+            while (sym->next)
             {
-                C67_STW_PTR_PRE_INC(r+1, C67_SP, loc/4+1);  // STW  r, *+SP[3] (go back and put the other)
+                sym=sym->next;
+                proto_count++;
             }
-            loc += size;
 
+            // rule is that last formal param plus var
+            // params are pushed on stack
+
+            // figure the size of the stack needed
+            // considering alignment
+
+            loc=0;
+            for (i=proto_count-1; i<nb_args; i++)
+            {
+                // align to argument size
+
+                size = args_sizes[i];
+                loc = (loc+size-1) & ~(size-1);
+                loc += size;
+            }
+            // finally align to Double word
+            size = 8;
+            loc = (loc+size-1) & ~(size-1);
+
+            stackused=loc;
+
+            C67_ADDK(-stackused,C67_SP);    //  ADDK.L2 -loc,SP
+            C67_NOP(3);                     //  NOP wait for loads to happen
+
+            //now re-save the required params (registers) onto the stack
+
+            loc=4;
+            for (i=proto_count-1; i<nb_args; i++)
+            {
+                // align to argument size
+
+                size = args_sizes[i];
+                loc = (loc+size-1) & ~(size-1);
+
+                r = TREG_C67_A4+(2 * i);
+
+                // must put on stack because with 1 pass compiler , no way to tell
+                // if an up coming nested call might overwrite these regs
+
+                C67_STW_PTR_PRE_INC(r, C67_SP, loc/4);  // STW  r, *+SP[3] (go back and put the other)
+
+                if (size == 8)
+                {
+                    C67_STW_PTR_PRE_INC(r+1, C67_SP, loc/4+1);  // STW  r, *+SP[3] (go back and put the other)
+                }
+                loc += size;
+
+            }
         }
+    } else {
+        CheckPreserveRegs(&A2_inuse,&A3_inuse,&B0_inuse,&B1_inuse);
     }
 
     gcall_or_jmp(0);
@@ -2097,6 +2201,12 @@ void gfunc_call(int nb_args)
 
         C67_ADDK(stackused,C67_SP);    //  ADDK.L2 loc,SP
     }
+
+    // Now reload any values that we saved before the call
+
+    CheckRestoreRegs(A2_inuse,A3_inuse,B0_inuse,B1_inuse);
+
+
     vtop--;
 }
 
@@ -2453,7 +2563,7 @@ void gen_opi(int op)
 	/* call generic idiv function */
 	vpush_global_sym(&func_old_type, t);
 	vrott(3);
-	gfunc_call(2);
+	gfunc_call(2,NULL);
 	vpushi(0);
 	vtop->r = REG_IRET;
 	vtop->r2 = VT_CONST;
@@ -2617,7 +2727,7 @@ void gen_opf(int op)
 		/* call generic idiv function */
 		vpush_global_sym(&func_old_type, TOK__divd);
 		vrott(3);
-		gfunc_call(2);
+		gfunc_call(2,NULL);
 		vpushi(0);
 		vtop->r = REG_FRET;
 		vtop->r2 = REG_LRET;
@@ -2628,7 +2738,7 @@ void gen_opf(int op)
 		/* call generic idiv function */
 		vpush_global_sym(&func_old_type, TOK__divf);
 		vrott(3);
-		gfunc_call(2);
+		gfunc_call(2, NULL);
 		vpushi(0);
 		vtop->r = REG_FRET;
 		vtop->r2 = VT_CONST;
@@ -2647,7 +2757,7 @@ void gen_cvt_itof(int t)
 {
     int r;
 
-    gv(RC_INT);
+    gv(RC_FLOAT);  // C67 needs reg pairs to handle doubles
     r = vtop->r;
 
     if ((t & VT_BTYPE) == VT_DOUBLE) {

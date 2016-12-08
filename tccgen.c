@@ -105,11 +105,6 @@ ST_FUNC void test_lvalue(void)
     if (!(vtop->r & VT_LVAL))
         expect("lvalue");
 }
-// true if register class may need register pair
-ST_INLN int is_pair(int rc)
-{
-    return (rc == RC_EAX || rc == RC_EDX || rc == RC_FLOAT);
-}
 /* ------------------------------------------------------------------------- */
 /* symbol allocator */
 static Sym *__sym_malloc(void)
@@ -1189,7 +1184,11 @@ static void gen_opl(int op)
         /* call generic long long function */
         vpush_global_sym(&func_old_type, func);
         vrott(3);
+#ifdef TCC_TARGET_C67
+        gfunc_call(2,NULL);
+#else
         gfunc_call(2);
+#endif
         vpushi(0);
         vtop->r = reg_iret;
         vtop->r2 = reg_lret;
@@ -1855,7 +1854,11 @@ static void gen_cvt_itof1(int t)
         else
             vpush_global_sym(&func_old_type, TOK___floatundidf);
         vrott(2);
+#ifdef TCC_TARGET_C67
+        gfunc_call(1,NULL);
+#else
         gfunc_call(1);
+#endif
         vpushi(0);
         vtop->r = reg_fret(t);
     } else {
@@ -1881,7 +1884,11 @@ static void gen_cvt_ftoi1(int t)
         else
             vpush_global_sym(&func_old_type, TOK___fixunsdfdi);
         vrott(2);
+#ifdef TCC_TARGET_C67
+        gfunc_call(1,NULL);
+#else
         gfunc_call(1);
+#endif
         vpushi(0);
         vtop->r = REG_IRET;
         vtop->r2 = REG_LRET;
@@ -2472,6 +2479,34 @@ ST_FUNC void vstore(void)
         /* structure assignment : generate memcpy */
         /* XXX: optimize if small size */
         if (!nocode_wanted) {
+
+#ifdef TCC_TARGET_C67
+// test available in teststructassign.c
+            int args_sizes[3];
+            size = type_size(&vtop->type, &align);
+
+            /* destination */
+            vswap();
+            vtop->type.t = VT_PTR;
+            gaddrof();
+            args_sizes[0] = gfunc_param(0);
+
+            // leave source on stack after call
+            // gfunc_param removes it hence the vdup
+            vdup();
+            /* source */
+            vtop->type.t = VT_PTR;
+            gaddrof();
+            args_sizes[1] = gfunc_param(1);
+            /* type size */
+            vpushi(size);
+            args_sizes[2] = gfunc_param(2);
+            /* address of memcpy() */
+            save_regs(0);
+            vpush_global_sym(&func_old_type, TOK_memcpy); //void *memcpy(void *destination, const void *source, size_t size)
+            gfunc_call(3,args_sizes);
+
+#else
             size = type_size(&vtop->type, &align);
 
             /* destination */
@@ -2497,6 +2532,7 @@ ST_FUNC void vstore(void)
             /* type size */
             vpushi(size);
             gfunc_call(3);
+#endif
         } else {
             vswap();
             vpop();
@@ -3940,6 +3976,7 @@ ST_FUNC void unary(void)
             SValue ret;
             Sym *sa;
             int nb_args;
+            int args_sizes[10]; //10 = NoCallArgsPassedOnStack
 
             /* function call  */
             if ((vtop->type.t & VT_BTYPE) != VT_FUNC) {
@@ -3957,6 +3994,10 @@ ST_FUNC void unary(void)
             }
             /* get return type */
             s = vtop->type.ref;
+            //PH maybe we need to save_regs
+            if (!nocode_wanted) {
+               save_regs(0); /* save used temporary registers */
+            }
             next();
             sa = s->next; /* first parameter */
             nb_args = 0;
@@ -3992,7 +4033,7 @@ ST_FUNC void unary(void)
 #ifdef TCC_TARGET_C67
                     //PH Parameters are casted into correct type in gfunc_param_typed
                     // we need to setup each parameter right after
-                    gfunc_param(nb_args);
+                    args_sizes[nb_args] = gfunc_param(nb_args);
 #endif
                     nb_args++;
                     if (sa)
@@ -4006,9 +4047,13 @@ ST_FUNC void unary(void)
                 tcc_error("too few arguments to function");
             skip(')');
             if (!nocode_wanted) {
+#ifdef TCC_TARGET_C67
+                gfunc_call(nb_args,args_sizes);
+#else
                 gfunc_call(nb_args);
+#endif
             } else {
-                vtop -= (nb_args + 1);
+                vtop--;
             }
             /* return value */
             vsetc(&ret.type, ret.r, &ret.c);
@@ -5036,7 +5081,11 @@ static void init_putz(CType *t, Section *sec, unsigned long c, int size)
         vseti(VT_LOCAL, c);
         vpushi(0);
         vpushi(size);
+#ifdef TCC_TARGET_C67
+        gfunc_call(3,NULL);
+#else
         gfunc_call(3);
+#endif
     }
 }
 

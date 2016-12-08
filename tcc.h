@@ -1259,7 +1259,14 @@ ST_FUNC void gsym_addr(int t, int a);
 ST_FUNC void gsym(int t);
 ST_FUNC void load(int r, SValue *sv);
 ST_FUNC void store(int r, SValue *v);
+#ifdef TCC_TARGET_C67
+ST_FUNC int gfunc_param(int arg_nr);
+ST_FUNC void gfunc_call(int nb_args, int* args_sizes);
+ST_INLN int is_pair(int rc);
+ST_FUNC int check_r2_free(int r);
+#else
 ST_FUNC void gfunc_call(int nb_args);
+#endif
 ST_FUNC void gfunc_prolog(CType *func_type);
 ST_FUNC void gfunc_epilog(void);
 ST_FUNC int gjmp(int t);

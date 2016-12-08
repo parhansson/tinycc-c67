@@ -1512,13 +1512,21 @@ static void gen_opic(int op)
                     op = TOK_SHR;
             }
             goto general_case;
+#ifdef TCC_TARGET_C67
+            //test available in test_addressptr_offset.c
+        } else if (c2 && (op == '+' || op == '-') &&
+                   (vtop[-1].r & (VT_VALMASK | VT_LVAL | VT_SYM)) == (VT_CONST | VT_SYM)) {
+#else
         } else if (c2 && (op == '+' || op == '-') &&
                    (((vtop[-1].r & (VT_VALMASK | VT_LVAL | VT_SYM)) == (VT_CONST | VT_SYM))
                     || (vtop[-1].r & (VT_VALMASK | VT_LVAL)) == VT_LOCAL)) {
+#endif
             /* symbol + constant case */
             if (op == '-')
                 l2 = -l2;
             vtop--;
+            //PH l2 is derived from vtop->c.ui cu.i and c.ui
+            //should'nt we put it back whereever it came from?
             vtop->c.ll += l2;
         } else {
         general_case:

@@ -12,26 +12,35 @@ Builds the same binaries as the 0.9.16 branch in KMotion software
 
 Example
 
-Old
-tcc67 -text 8005000 -g -static -nostdinc -I kmotioninstalldir/DSP_KFLOP -o example.out example.c kmotioninstalldir/DSP_KFLOP/DSPKFLOP.out
-New
-c67-tcc -g -Wl,-Ttext,8005000 -Wl,--oformat,coff -fcommon -static -nostdlib -nostdinc -I kmotioninstalldir/DSP_KFLOP -o example.out example.c kmotioninstalldir/DSP_KFLOP/DSPKFLOP.out
+Old version (0.9.16 branch)
+
+`tcc67 -text 8005000 -g -static -nostdinc -I kmotioninstalldir/DSP_KFLOP -o example.out example.c kmotioninstalldir/DSP_KFLOP/DSPKFLOP.out`
+
+New version (0.9.26)
+
+`c67-tcc -g -Wl,-Ttext,8005000 -Wl,--oformat,coff -fcommon -static -nostdlib -nostdinc -I kmotioninstalldir/DSP_KFLOP -o example.out example.c kmotioninstalldir/DSP_KFLOP/DSPKFLOP.out`
 
 #### Features:
 Decalare variable in for loop
-for(int i=0;i<2;i++){}
-
+```C
+for(int i=0;i<2;i++){
+}
+```
 Not possible in old version, hence...
+```C
 int i;
-for(i=0;i<2;i++){}
-
+for(i=0;i<2;i++){
+}
+```
 New version seem to be a bit stricter and issues more warnings
 and emits errors on missing function prototypes.
 
 
 #### Configure and build
+```
 ./configure --cross
 make c67-tcc
+```
 
 ### Original Fabrice Bellard readme
 
